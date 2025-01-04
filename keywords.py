@@ -20,6 +20,11 @@ class KW(Enum):
     ORIGIN = "origin"
     STRING = "string"
     ARRAY = "array"
+    FIELD = "field"
+    VALUE = "value"
+    SERIES = "series"
+    MEMBER = "member"
+    POSITION = "position"
 
 class TokenClass(Enum):
     NUMBER = auto()

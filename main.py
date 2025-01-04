@@ -19,7 +19,7 @@ class Field:
 
 
 class Token:
-    def __init__(self, token_class, subclass=None, value=None):
+    def __init__(self, token_class, subclass, value):
         self.token_class = token_class
         self.subclass = subclass
         self.value = value
@@ -30,37 +30,74 @@ class Token:
 
 class FileReader:
     def __init__(self, filename):
-        with open(filename, "r") as file:
-            self.lines = file.readlines()[:50]
+        self.filename = filename
         self.current_line = 0
+        self.t: Token = None
+        self.token_generator = None
         self.kw_mapping = {kw.value: kw for kw in KW}
+    
+    def tokenize(self, file):
+        for line in file:
+            self.current_line += 1
 
-    def read_next_line(self):
-        line = self.lines[self.current_line].strip()
-        self.current_line += 1
-        return line
+            words = line.split()
+            for word in words:
+                if word.isdigit():
+                    yield Token(TokenClass.NUMBER, NumberSubclass.INTEGER, int(word))
+                elif word in self.kw_mapping:
+                    yield Token(TokenClass.KEYWORD, None, self.kw_mapping[word])
+                elif is_float(word):
+                    yield Token(TokenClass.NUMBER, NumberSubclass.FLOAT, float(word))
+                elif word[0] == '"' and word[-1] == '"':
+                    yield Token(TokenClass.STRING, None, word)
+                else:
+                    raise ValueError("Token not recognised as number or keyword.")
 
-    def tokenize(self, line):
-        tokens = []
-        words = line.split()
-        for word in words:
-            if word.isdigit():
-                tokens.append(Token(TokenClass.NUMBER, NumberSubclass.INTEGER, int(word)))
-            elif word in self.kw_mapping:
-                tokens.append(Token(TokenClass.KEYWORD, None, self.kw_mapping[word]))
-            elif is_float(word):
-                tokens.append(Token(TokenClass.NUMBER, NumberSubclass.FLOAT, float(word)))
-            elif word[0] == '"' and word[-1] == '"':
-                tokens.append(Token(TokenClass.STRING, None, word))
-            else:
-                raise ValueError("Token not recognised as number or keyword.")
-            print(tokens[-1])
+    def parse_sarray(self, kind):
+        origin = None
+        deltas = None
+        counts = 0
+
+
+    def parse_object(self):
+        objnum = None
+
+        self.next_token()
+        if self.t.token_class == TokenClass.NUMBER:
+            objnum = self.t.value
+        self.next_token()
+        self.next_token()
+
+        match self.t.value:
+            case KW.GRIDPOSITIONS | KW.GRIDCONNECTIONS:
+                self.parse_sarray(self.t.value)
+
+
+    def next_token(self):
+        try:
+            self.t = next(self.token_generator)
+            return self.t
+        except StopIteration:
+            self.t = None
+            return None
 
     def parse(self):
-        while self.current_line < len(self.lines):
-            line = self.read_next_line()
-            if line:
-                tokens = self.tokenize(line)
+        with open(self.filename, "r") as file:
+            self.token_generator = self.tokenize(file)
+
+            while True:
+                self.next_token()
+
+                if self.t is None:
+                    break
+
+                match self.t.value:
+                    case KW.OBJECT:
+                        self.parse_object()
+                print(self.t)
+
+
+
                 
 
 def read_dx(filename: str) -> Field:
