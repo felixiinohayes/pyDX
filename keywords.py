@@ -12,6 +12,9 @@ class KW(Enum):
     GRIDCONNECTIONS = "gridconnections"
     TYPE = "type"
     FLOAT = "float"
+    INTEGER = "integer"
+    DOUBLE = "double"
+    COMPLEX = "complex"
     RANK = "rank"
     SHAPE = "shape"
     ITEM = "item"
@@ -31,7 +34,7 @@ class TokenClass(Enum):
     KEYWORD = auto()
     STRING = auto()
 
-class NumberSubclass(Enum):
+class Type(Enum):
     INTEGER = auto()
     FLOAT = auto()
     DOUBLE = auto()
