@@ -8,8 +8,15 @@ def is_float(string):
         float(string)
         return True
     except ValueError:
-        print(string)
         return False
+
+def is_int(string):
+    try:
+        int(string)
+        return True
+    except ValueError:
+        return False
+
 
 class Field:
     def __init__(self):
@@ -25,7 +32,7 @@ class Token:
         self.value = value
     
     def __repr__(self):
-        return f"Token({self.token_class}, {self.subclass}, {self.value})"
+        return f"Token({self.token_class}, {self.type}, {self.value})"
     
 
 class FileReader:
@@ -35,8 +42,9 @@ class FileReader:
         self.t = None
         self.token_generator = None
         self.kw_mapping = {kw.value: kw for kw in KW}
+        self.field = Field()
+        self.objnums = []
     
-
     # Increments the current token
     def next_token(self):
         try:
@@ -47,41 +55,60 @@ class FileReader:
             return None
 
     def tokenize(self, file):
+        in_string = False
+        current_string = []
+
         for line in file:
             self.current_line += 1
 
             words = line.split()
             for word in words:
-                if word.isdigit():
-                    yield Token(TokenClass.NUMBER, Type.INTEGER, int(word))
-                elif word in self.kw_mapping:
-                    yield Token(TokenClass.KEYWORD, None, self.kw_mapping[word])
-                elif is_float(word):
-                    yield Token(TokenClass.NUMBER, Type.FLOAT, float(word))
-                elif word[0] == '"' and word[-1] == '"':
-                    yield Token(TokenClass.STRING, None, word)
+                if not in_string:
+                    if is_int(word):
+                        yield Token(TokenClass.NUMBER, Type.INTEGER, int(word))
+                    elif is_float(word):
+                        yield Token(TokenClass.NUMBER, Type.FLOAT, float(word))
+                    elif word in self.kw_mapping:
+                        yield Token(TokenClass.KEYWORD, None, self.kw_mapping[word])
+                    elif word.startswith('"') and word.endswith('"'):
+                        yield Token(TokenClass.STRING, None, word)
+                    elif word.startswith('"') and not word.endswith('"'):
+                        in_string = True
+                        current_string.append(word[1:])
+                    else:
+                        raise ValueError("Token not recognised as number or keyword.")
                 else:
-                    raise ValueError("Token not recognised as number or keyword.")
+                    if word.endswith('"'):
+                        in_string = False
+                        current_string.append(word[:-1])
+                        full_string = " ".join(current_string)
+                        current_string = []
+                        yield Token(TokenClass.STRING, None, full_string)
+                    else:
+                        current_string.append(word)
 
-    def match_keyword(self, keyword):
+    def match_keyword(self, keyword) -> bool:
         if (self.t.token_class == TokenClass.KEYWORD) & (self.t.value == keyword):
             return True
         else:
-            raise ValueError(f"Line {self.current_line}: Expected keyword {keyword} but encountered other token.")
+            return False
+            # raise ValueError(f"Line {self.current_line}: Expected keyword {keyword} but encountered other token.")
 
-    def match_int(self):
+    def match_int(self) -> bool:
         if (self.t.token_class == TokenClass.NUMBER) & (self.t.type == Type.INTEGER):
-            return 
+            return True
         else:
-            raise ValueError(f"Line {self.current_line}: Expected integer but encountered other token.")
+            return False
+            # raise ValueError(f"Line {self.current_line}: Expected integer but encountered other token.")
 
-    def match_float(self):
+    def match_float(self) -> bool:
         if (self.t.token_class == TokenClass.NUMBER) & (self.t.type == Type.FLOAT):
-            return
+            return True
         else:
-            raise ValueError(f"Line {self.current_line}: Expected float but encountered other token.")
+            return False
+            # raise ValueError(f"Line {self.current_line}: Expected float but encountered other token.")
 
-    def parse_sarray(self, kind):
+    def parse_grid(self, kind):
         origin = []
         deltas = []
         counts = []
@@ -94,9 +121,11 @@ class FileReader:
         # Parse counts
         try:
             while True:
-                self.match_int()
-                counts.append(self.t.value)
-                self.next_token()
+                if self.match_int():
+                    counts.append(self.t.value)
+                    self.next_token()
+                else:
+                    break
         except ValueError:
             pass
 
@@ -104,23 +133,34 @@ class FileReader:
 
         match kind:
             case KW.GRIDPOSITIONS:
-                self.match_keyword(KW.ORIGIN)
+                if not self.match_keyword(KW.ORIGIN):
+                    raise ValueError(f"Line {self.current_line}: Expected keyword {KW.ORIGIN} but encountered other token.")
+                    
                 self.next_token()
 
                 # Parse the origin
                 for i in range(rank):
-                    self.match_float()
-                    origin.append(self.t.value)
+                    if self.match_float():
+                        origin.append(self.t.value)
+                    else:
+                        raise ValueError(f"Line {self.current_line}: Expected float but encountered other token.")
                     self.next_token()
 
                 # Parse the deltas (There will RANK number of deltas)
                 for i in range(rank):
-                    self.match_keyword(KW.DELTA)
-                    self.next_token()
-                    for j in range(rank):
-                        self.match_float()
-                        deltas.append(self.t.value)
+                    if self.match_keyword(KW.DELTA):
                         self.next_token()
+                        deltatemp = []
+
+                        for j in range(rank):
+                            if self.match_float():
+                                deltatemp.append(self.t.value)
+                                self.next_token()
+                            else:
+                                raise ValueError(f"Line {self.current_line}: Expected float but encountered other token.")
+                        deltas.append(deltatemp)
+                    else:
+                        raise ValueError(f"Line {self.current_line}: Expected keyword {KW.DELTA} but encountered other token.")
                 
             case KW.GRIDCONNECTIONS:
                 pass
@@ -140,13 +180,13 @@ class FileReader:
                     self.next_token()
                     match self.t.value:
                         case KW.INTEGER:
-                            type = Type.INTEGER
+                            dtype = Type.INTEGER
                         case KW.FLOAT:
-                            type = Type.FLOAT
+                            dtype = Type.FLOAT
                         case KW.DOUBLE:
-                            type = Type.DOUBLE
+                            dtype = Type.DOUBLE
                         case KW.COMPLEX:
-                            type = Type.COMPLEX
+                            dtype = Type.COMPLEX
                         case _:
                             raise ValueError("Incorrect type keyword encountered.")
                 case KW.RANK:
@@ -165,19 +205,37 @@ class FileReader:
                     self.next_token()
                     match self.t.value:
                         case KW.FOLLOWS:
-                            dim = tuple((items for _ in range(shape))) # Fix this to account for rank/shape/items
-                            data = np.zeros(shape=dim, dtype=float)
+                            dim = (shape, items)
+                            self.read_array(dim, dtype)
+                            break
                         case _: # todo: implement FILE, MODE, byteoffset cases
                             raise NotImplementedError("Follows keyword expected.")
+                case KW.ATTRIBUTE:
+                    # todo
+                    pass
+                case _:
+                    break
 
-
+    def read_array(self, dim, dtype):
+        total_elements = np.prod(dim)
+        data_flat = np.zeros(total_elements, dtype=float)
+        reading = True
+        for i in range(total_elements):
+            self.next_token()
+            if self.t.type == dtype:
+                data_flat[i] = self.t.value
+            else:
+                raise ValueError("Unexpected dtype found while parsing array.")
+        data = np.reshape(data_flat, dim)
+        # print(data)
+                    
     def parse_object(self):
-        objnum = None
-
         self.next_token()
 
-        self.match_int()
-        objnum = self.t.value
+        if self.match_int():
+            self.objnums.append(self.t.value)
+        else:
+            raise ValueError("Need to define object id.")
 
         self.next_token()
         if self.t.value == KW.CLASS: # Skips the (optional) class keyword
@@ -185,27 +243,26 @@ class FileReader:
 
         match self.t.value:
             case KW.GRIDPOSITIONS | KW.GRIDCONNECTIONS:
-                self.parse_sarray(self.t.value)
+                self.parse_grid(self.t.value)
             case KW.ARRAY:
                 self.parse_array()
+            case _:
+                raise ValueError("Only array, gridpos, gridcon classes supported.")
 
 
     def parse(self):
         with open(self.filename, "r") as file:
             self.token_generator = self.tokenize(file) # Initialize token generator
 
-            i=0
-            while i<10:
-                # print(self.t)
+            while True:
                 self.next_token()
-
                 if self.t is None:
+                    print("End of file reached.")
                     break
 
                 match self.t.value:
                     case KW.OBJECT:
                         self.parse_object()
-                i+=1
 
 
 def read_dx(filename: str) -> Field:
@@ -214,7 +271,7 @@ def read_dx(filename: str) -> Field:
     return Field() # insert parsed data as arguments
 
 def main():
-    field = read_dx("C10_TOP.dx")
+    field = read_dx("test1d.dx")
 
 
 if __name__ == "__main__":
