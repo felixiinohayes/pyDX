@@ -21,18 +21,17 @@ def is_int(string):
 class Field:
     def __init__(self):
         self.components = {}
-    
-    def add(self, component):
-        self.components[component.objectid] = component
+
+    def add(self, component, name):
+        self.components[name] = component
 
 
 class GridPositions:
-    def __init__(self, objectid, origin, deltas, counts, rank):
+    def __init__(self, objectid, origin, deltas, counts):
         self.objectid = objectid
         self.origin = origin
         self.deltas = deltas
         self.counts = counts
-        self.rank = rank
 
 
 class GridConnections:
@@ -47,16 +46,15 @@ class Array:
         self.data = data
 
 
-
 class Token:
     def __init__(self, token_class, type, value):
         self.token_class = token_class
         self.type = type
         self.value = value
-    
+
     def __repr__(self):
         return f"Token({self.token_class}, {self.type}, {self.value})"
-    
+
 
 class FileReader:
     def __init__(self, filename):
@@ -65,15 +63,16 @@ class FileReader:
         self.t = None
         self.token_generator = None
         self.kw_mapping = {kw.value: kw for kw in KW}
-        self.field = Field()
         self.objectids = []
+        self.currentid = None
+        self.components = {}
+        self.fields = {}
         self.rank = None
-    
+
     # Increments the current token
     def next_token(self):
         try:
             self.t = next(self.token_generator)
-            print(self.t)
             return self.t
         except StopIteration:
             self.t = None
@@ -121,24 +120,52 @@ class FileReader:
     def match_float(self) -> bool:
         return (self.t.token_class == TokenClass.NUMBER) & (self.t.type == Type.FLOAT)
 
+    def match_string(self) -> bool:
+        return self.t.token_class == TokenClass.STRING
+
     def parse_field(self):
-        return
+        print("field")
+        f = Field()
+        name = ""
+        while True:
+            self.next_token()
+
+            if not (self.match_keyword(KW.COMPONENT) or self.match_keyword(KW.ATTRIBUTE)):
+                break
+
+            self.next_token()
+
+            if self.match_string:
+                name = self.t.value
+            else:
+                raise ValueError("Component name must be string.")
+
+            self.next_token()
+            self.next_token()
+
+            if self.match_int or self.match_string:
+                if self.t.value in self.components:
+                    f.add(self.components[self.t.value], name)
+                else:
+                    raise ValueError("Component value not in object list.")
+            else:
+                raise ValueError("Component value must be int or string.")
+        self.fields[self.currentid] = f
+
 
     def parse_grid(self, kind):
         origin = []
         deltas = []
         counts = []
         rank = None
-        print("grid")
 
         self.next_token()
         self.match_keyword(KW.COUNTS)
         self.next_token()
-        
+
 
         match kind:
             case KW.GRIDPOSITIONS:
-                print("positions")
                 # Parse counts
                 while True:
                     if self.match_int():
@@ -152,7 +179,7 @@ class FileReader:
 
                 if not self.match_keyword(KW.ORIGIN):
                     raise ValueError(f"Line {self.current_line}: Expected keyword {KW.ORIGIN} but encountered other token.")
-                    
+
                 self.next_token()
 
                 # Parse the origin
@@ -178,9 +205,8 @@ class FileReader:
                         deltas.append(deltatemp)
                     else:
                         raise ValueError(f"Line {self.current_line}: Expected keyword {KW.DELTA} but encountered other token.")
-                print(deltas, self.t.value)
-                self.field.add(GridPositions(self.objectids[-1], origin, deltas, counts, rank))
-                
+                self.components[self.currentid] = GridPositions(self.currentid, origin, deltas, counts)
+
             case KW.GRIDCONNECTIONS:
                 # Parse counts
                 for i in range(self.rank):
@@ -190,10 +216,8 @@ class FileReader:
                         raise ValueError("Non integer encountered in connection counts.")
                     if i < self.rank - 1: self.next_token()
 
-                print("connections", counts)
-                self.field.add(GridConnections(self.objectids[-1], counts))
+                self.components[self.currentid] = GridConnections(self.currentid, counts)
                 pass
-        print("gridend")
 
     def parse_array(self):
         dtype = Type.FLOAT
@@ -238,7 +262,7 @@ class FileReader:
                         case KW.FOLLOWS:
                             dim = (shape, items)
                             data = self.read_array(dim, dtype)
-                            self.field.add(Array(self.objectids[-1], data))
+                            self.components[self.currentid] = Array(self.currentid, data)
                             break
                         case _: # todo: implement FILE, MODE, byteoffset cases
                             raise NotImplementedError("Follows keyword expected.")
@@ -260,14 +284,14 @@ class FileReader:
                 raise ValueError("Unexpected dtype found while parsing array.")
         data = np.reshape(data_flat, dim)
         return data
-        # print(data)
-                    
+
     def parse_object(self):
         print("object")
         self.next_token()
 
         if self.match_int() or self.t.token_class == TokenClass.STRING:
             self.objectids.append(self.t.value)
+            self.currentid = self.t.value
         else:
             raise ValueError("Need to define object id as int or string.")
 
@@ -292,17 +316,18 @@ class FileReader:
             self.next_token()
 
             while True:
+                # print("parse", self.t.value)
                 if self.t is None:
-                    print("End of file reached.")
                     break
-                print("parse")
 
                 match self.t.value:
                     case KW.OBJECT:
                         self.parse_object()
-
                 self.next_token()
-            print(self.field.components)
+
+            print(self.components)
+            print(self.fields)
+            # print(self.fields[''].components['data'].data)
 
 
 def read_dx(filename: str) -> Field:
@@ -311,7 +336,7 @@ def read_dx(filename: str) -> Field:
     return Field() # insert parsed data as arguments
 
 def main():
-    field = read_dx("test1d.dx")
+    field = read_dx("testfiles/test1d.dx")
 
 
 if __name__ == "__main__":
