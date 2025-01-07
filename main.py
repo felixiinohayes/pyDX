@@ -3,46 +3,60 @@ from typing import List
 from enum import Enum
 from keywords import KW, TokenClass, Type
 
-def is_float(string):
+def _is_float(string):
     try:
         float(string)
         return True
     except ValueError:
         return False
 
-def is_int(string):
+def _is_int(string):
     try:
         int(string)
         return True
     except ValueError:
         return False
 
+class Series(DXObject):
+    def __init__(self, objectid, members):
+        super().__init__(objectid)
+        self.members = members
 
-class Field:
-    def __init__(self):
+class Field(DXObject):
+    def __init__(self, objectid):
+        super().__init__(objectid)
         self.components = {}
 
     def add(self, component, name):
         self.components[name] = component
 
 
-class GridPositions:
-    def __init__(self, objectid, origin, deltas, counts):
+class DXObject:
+    def __init__(self, objectid):
         self.objectid = objectid
+        self.attributes = {}
+
+    def add_attribute(self, attribute, target):
+        self.attributes[attribute] = target
+
+
+class GridPositions(DXObject):
+    def __init__(self, objectid, origin, deltas, counts):
+        super().__init__(objectid)
         self.origin = origin
         self.deltas = deltas
         self.counts = counts
 
 
-class GridConnections:
+class GridConnections(DXObject):
     def __init__(self, objectid, counts):
-        self.objectid = objectid
+        super().__init__(objectid)
         self.counts = counts
 
 
-class Array:
+class Array(DXObject):
     def __init__(self, objectid, data):
-        self.objectid = objectid
+        super().__init__(objectid)
         self.data = data
 
 
@@ -63,10 +77,12 @@ class FileReader:
         self.t = None
         self.token_generator = None
         self.kw_mapping = {kw.value: kw for kw in KW}
-        self.objectids = []
+
         self.currentid = None
         self.components = {}
         self.fields = {}
+        self.series_members = {}
+        self.series = None
         self.rank = None
 
     # Increments the current token
@@ -123,18 +139,52 @@ class FileReader:
     def match_string(self) -> bool:
         return self.t.token_class == TokenClass.STRING
 
+    def parse_series(self):
+
+        while True:
+            self.next_token()
+            if not self.match_keyword(KW.MEMBER):
+                break
+
+            member = []
+            self.next_token()
+            if self.match_int():
+                member.append(self.t.value)
+            else:
+                raise ValueError("Series member id must be integer.")
+
+            self.next_token()
+            if not self.match_keyword(KW.VALUE):
+                raise ValueError("Expected value keyword in series definition.")
+
+            self.next_token()
+            if self.match_int():
+                member.append(self.t.value)
+            else:
+                raise ValueError("Series member id must be integer.")
+
+            self.next_token()
+            if not self.match_keyword(KW.POSITION):
+                raise ValueError("Expected position keyword in series definition.")
+
+            self.next_token()
+            if self.match_int():
+                member.append(self.t.value)
+            else:
+                raise ValueError("Series member id must be integer.")
+
+            self.series_members[member[0]] = (self.fields[member[1]], member[2])
+        self.series = Series(self.currentid, self.series_members)
+
     def parse_field(self):
-        print("field")
-        f = Field()
+        f = Field(self.currentid)
         name = ""
         while True:
             self.next_token()
-
             if not (self.match_keyword(KW.COMPONENT) or self.match_keyword(KW.ATTRIBUTE)):
                 break
 
             self.next_token()
-
             if self.match_string:
                 name = self.t.value
             else:
@@ -142,7 +192,6 @@ class FileReader:
 
             self.next_token()
             self.next_token()
-
             if self.match_int or self.match_string:
                 if self.t.value in self.components:
                     f.add(self.components[self.t.value], name)
@@ -161,9 +210,8 @@ class FileReader:
 
         self.next_token()
         self.match_keyword(KW.COUNTS)
+
         self.next_token()
-
-
         match kind:
             case KW.GRIDPOSITIONS:
                 # Parse counts
@@ -181,7 +229,6 @@ class FileReader:
                     raise ValueError(f"Line {self.current_line}: Expected keyword {KW.ORIGIN} but encountered other token.")
 
                 self.next_token()
-
                 # Parse the origin
                 for i in range(rank):
                     if self.match_float():
@@ -189,19 +236,19 @@ class FileReader:
                     else:
                         raise ValueError(f"Line {self.current_line}: Expected float but encountered other token.")
                     self.next_token()
-
+                    
                 # Parse the deltas (There will RANK number of deltas)
                 for i in range(rank):
                     if self.match_keyword(KW.DELTA):
                         self.next_token()
-                        deltatemp = []
 
+                        deltatemp = []
                         for j in range(rank):
                             if self.match_float():
                                 deltatemp.append(self.t.value)
                             else:
                                 raise ValueError(f"Line {self.current_line}: Expected float but encountered other token.")
-                            if not (i == rank - 1 and j == rank - 1): self.next_token()
+                            self.next_token()
                         deltas.append(deltatemp)
                     else:
                         raise ValueError(f"Line {self.current_line}: Expected keyword {KW.DELTA} but encountered other token.")
@@ -214,7 +261,7 @@ class FileReader:
                         counts.append(self.t.value)
                     else:
                         raise ValueError("Non integer encountered in connection counts.")
-                    if i < self.rank - 1: self.next_token()
+                    self.next_token()
 
                 self.components[self.currentid] = GridConnections(self.currentid, counts)
                 pass
@@ -224,10 +271,8 @@ class FileReader:
         rank = None
         shape = None
         items = None
-        print("array")
 
-        done = False
-        while not done:
+        while True:
             self.next_token()
 
             match self.t.value:
@@ -263,12 +308,26 @@ class FileReader:
                             dim = (shape, items)
                             data = self.read_array(dim, dtype)
                             self.components[self.currentid] = Array(self.currentid, data)
-                            break
                         case _: # todo: implement FILE, MODE, byteoffset cases
                             raise NotImplementedError("Follows keyword expected.")
                 case KW.ATTRIBUTE:
-                    # todo
-                    pass
+                    self.next_token()
+                    att_name = ""
+                    if self.match_string():
+                        att_name = self.t.value
+                    else:
+                        raise ValueError("Expected string after attribute keyword.")
+
+                    self.next_token()
+                    if not self.match_keyword(KW.STRING): raise ValueError("Expected string keyword.")
+
+                    target = ""
+                    self.next_token()
+                    if self.match_string():
+                        target = self.t.value
+                    else:
+                        raise ValueError("Expected string after attribute keyword.")
+                    self.components[self.currentid].add_attribute(att_name, target)
                 case _:
                     break
 
@@ -286,11 +345,9 @@ class FileReader:
         return data
 
     def parse_object(self):
-        print("object")
         self.next_token()
 
         if self.match_int() or self.t.token_class == TokenClass.STRING:
-            self.objectids.append(self.t.value)
             self.currentid = self.t.value
         else:
             raise ValueError("Need to define object id as int or string.")
@@ -306,6 +363,8 @@ class FileReader:
                 self.parse_array()
             case KW.FIELD:
                 self.parse_field()
+            case KW.SERIES:
+                self.parse_series()
             case _:
                 raise ValueError("Only array, gridpos, gridcon classes supported.")
 
@@ -317,27 +376,22 @@ class FileReader:
 
             while True:
                 # print("parse", self.t.value)
-                if self.t is None:
+                if self.t is None or self.t.value == KW.END:
                     break
 
                 match self.t.value:
                     case KW.OBJECT:
                         self.parse_object()
-                self.next_token()
 
-            print(self.components)
-            print(self.fields)
-            # print(self.fields[''].components['data'].data)
+            if self.series:
+                return self.series
+            else:
+                return self.fields
 
 
-def read_dx(filename: str) -> Field:
+def read_dx(filename: str):
     reader = FileReader(filename)
-    reader.parse()
-    return Field() # insert parsed data as arguments
-
-def main():
-    field = read_dx("testfiles/test1d.dx")
-
+    return reader.parse()
 
 if __name__ == "__main__":
-    main()
+    data = read_dx("testfiles/test1dseries.dx")
