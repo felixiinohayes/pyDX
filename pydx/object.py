@@ -1,16 +1,33 @@
+from dataclasses import dataclass
+
+# TODO: Figure out class hierarchies
 class DXObject:
     def __init__(self, objectid):
         self.objectid = objectid
         self.attributes = {}
 
-    def add_attribute(self, attribute, target):
-        self.attributes[attribute] = target
+    def set_attribute(self, name, value):
+        self.attributes[name] = value
+
+@dataclass
+class GroupMember:
+    value: DXObject
+    position: int
 
 
-class Series(DXObject):
-    def __init__(self, objectid, members):
+class Group(DXObject):
+    def __init__(self, objectid):
         super().__init__(objectid)
-        self.members = members
+        self.members = []
+    
+
+class Series(Group):
+    def __init__(self, objectid):
+        super().__init__(objectid)
+
+    def add_member(self, value, position):
+        self.members.append(GroupMember(value=value, position=position))
+
 
 
 class Field(DXObject):
@@ -18,8 +35,11 @@ class Field(DXObject):
         super().__init__(objectid)
         self.components = {}
 
-    def add(self, component, name):
-        self.components[name] = component
+    def add_component(self, name, value):
+        self.components[name] = value
+
+    def __repr__(self):
+        return f"Field(components: {len(self.components)})"
 
 
 class GridPositions(DXObject):

@@ -1,5 +1,5 @@
-from pydx import FileReader
+from pydx import load_dx
 
-data = FileReader.read_dx("data/test1dseries.dx")
+series = load_dx("data/test1dseries.dx")
 
-print(data)
+print(series)
