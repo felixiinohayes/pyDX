@@ -170,7 +170,6 @@ class DXLoader:
                 raise ValueError("Component value must be int or string.")
         self.fields[self.currentid] = f
 
-
     def parse_grid(self, kind):
         origin = []
         deltas = []
